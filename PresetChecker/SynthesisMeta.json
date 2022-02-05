@@ -1,0 +1,8 @@
+{
+  "Nickname": "PresetChecker",
+  "Visibility": "Visible",
+  "OneLineDescription": "Preset FormID Check and ZMerge Fixup",
+  "LongDescription": "Ensure Head Part Form IDs are recognized. Produce patched jslot files where they contain Plugins and FormIDs that are now in a ZMerged plugin.",
+  "PreferredAutoVersioning": "Default",
+  "RequiredMods": []
+}
