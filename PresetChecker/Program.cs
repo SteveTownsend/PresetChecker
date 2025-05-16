@@ -9,7 +9,7 @@ namespace PresetChecker
     public class Program
     {
         static Lazy<Settings> _settings = null!;
-        static public Settings settings => _settings.Value;
+        static internal Settings settings => _settings.Value;
         public static async Task<int> Main(string[] args)
         {
             return await SynthesisPipeline.Instance

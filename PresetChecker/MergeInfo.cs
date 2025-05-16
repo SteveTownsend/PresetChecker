@@ -17,7 +17,7 @@ namespace PresetChecker
         public MergeInfo(string inputFolder)
         {
             if (String.IsNullOrEmpty(inputFolder))
-                inputFolder = Program.State.DataFolderPath;
+                throw new ArgumentException("Input Folder cannot be blank");
             // inventory merge candidates in the current directory
             EnumerationOptions options = new EnumerationOptions { RecurseSubdirectories = true };
             foreach (string mergePath in Directory.GetDirectories(inputFolder, "merge - *", options))

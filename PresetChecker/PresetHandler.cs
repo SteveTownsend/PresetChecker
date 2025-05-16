@@ -9,6 +9,12 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+using Noggog;
+using System.IO.Abstractions;
+using Mutagen.Bethesda.Synthesis.Projects;
+using static Mutagen.Bethesda.Oblivion.Race;
+using System.Reflection;
 
 namespace PresetChecker
 {
@@ -20,33 +26,85 @@ namespace PresetChecker
         private static readonly uint ESPForm = 0x00FFFFFF;
         // .jslot uses HeadPart formId field to discriminate ESP and ESPFE - merged plugins with HDPT information
         // should not be ESPFE-ified after the fact
-        private static readonly uint NewFormMask = 0x80000000;
+        // private static readonly uint NewFormMask = 0x80000000;
         private ISet<FormKey> _allHeadParts;
         private readonly MergeInfo _mergeInfo;
         private readonly string _inputFolder;
         private JObject? _preset;
-        private string? _presetFile;
+        private bool _presetUpdated;
+        private string? _presetFileFull;
+        private string? _originalFileName;
+        private string _prefixProcessed = "backup/";
+        private string? _newFileName;
         private ISet<string> _checkedTextures = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase);
+        private ISet<string> _badPlugins = new SortedSet<string>(StringComparer.InvariantCultureIgnoreCase);
+        private ISet<string> _badTextures = new SortedSet<string>(StringComparer.InvariantCultureIgnoreCase);
         private readonly Textures _textures;
+        private readonly string _highPolyMod = "High Poly Head.esm";
+        private readonly string _highPolyPrefix = "HighPoly/";
+        private readonly string _cotrMod = "COR_AllRace.esp";
+        private readonly string _cotrPrefix = "CotR/";
+        private readonly string _otherPrefix = "Other/";
+        private IDictionary<FormKey, string>? _raceByFacePart;
+        private readonly string _facePartKey = "malehead";
+        private IDictionary<string, string> _raceTagByRaceName = new Dictionary<string, string>()
+        {
+            { "argonian", "Argonian" },
+            { "breton", "Breton" },
+            { "darkelf", "Dunmer" },
+            { "highelf", "Altmer" },
+            { "imperial", "Imperial" },
+            { "khajiit", "Khajiit" },
+            { "nord", "Nord" },
+            { "orc", "Orsimer" },
+            { "redguard", "Redguard" },
+            { "woodelf", "Bosmer" },
+        };
+        private readonly string _validPresetPath = "\\skse\\plugins\\chargen\\presets\\";
 
         public PresetHandler(string inputFolder, MergeInfo mergeInfo, Textures textures)
         {
             _inputFolder = inputFolder;
-            if (String.IsNullOrEmpty(_inputFolder))
-                _inputFolder = Program.State.DataFolderPath;
+            if (_inputFolder.IsNullOrEmpty())
+                throw new ArgumentException("Input Folder cannot be blank");
+            if (Program.settings.OutputFolder.IsNullOrEmpty())
+                throw new ArgumentException("Output Folder cannot be blank");
             _mergeInfo = mergeInfo;
             _textures = textures;
+            // Do not overwrite existing files - always need a clean slate
+            EnumerationOptions options = new EnumerationOptions { RecurseSubdirectories = true };
+            int existingCount = Directory.GetFiles(Program.settings.OutputFolder, "*.jslot", options).Length;
+            if (existingCount > 0)
+            {
+                Console.WriteLine("WARNING {0} Preset files found in output folder will not be overwritten", existingCount);
+                Console.WriteLine("------- Please ensure Output Directory is not included in MO2 Virtual File System by unchecking the mod before running, to avoid errors or confusion");
+            }
 
             _allHeadParts = Program.State.LoadOrder.PriorityOrder.WinningOverrides<IHeadPartGetter>().Select(s => s.FormKey).ToHashSet();
-            // inventory merge candidates in the current directory
-            EnumerationOptions options = new EnumerationOptions { RecurseSubdirectories = true };
+            if (Program.settings.GroupPresets)
+            {
+                // find Face formIDs and identify the race
+                _raceByFacePart = Program.State.LoadOrder.PriorityOrder.WinningOverrides<IHeadPartGetter>().
+                    Where(s => s.EditorID!.IndexOf(_facePartKey, StringComparison.OrdinalIgnoreCase) >= 0).
+                    ToDictionary(s => s.FormKey, s => GetRace(s.EditorID!));
+            }
             foreach (string presetFile in Directory.GetFiles(_inputFolder, "*.jslot", options))
             {
+                _presetUpdated = false;
+                if (!presetFile.ToLower().Contains(_validPresetPath))
+                {
+                    Console.WriteLine("---- Preset file outside valid location {0}", presetFile);
+                    continue;
+                }
+                string presetExtension = Path.GetExtension(presetFile);
                 // read the contexts of the preset file and convert any merged plugin names and formids
-                _presetFile = presetFile;
-                PresetPaths.Add(_presetFile);
-                Console.WriteLine("---- Preset file {0}", _presetFile);
-                using (StreamReader reader = File.OpenText(_presetFile))
+                _presetFileFull = presetFile;
+                _originalFileName = Path.GetFileName(_presetFileFull);
+                _newFileName = _originalFileName;
+                PresetPaths.Add(_presetFileFull);
+                Console.WriteLine("---- Preset file checks for {0}", _presetFileFull);
+
+                using (StreamReader reader = File.OpenText(_presetFileFull))
                 {
                     _preset = (JObject)JToken.ReadFrom(new JsonTextReader(reader));
                     CheckTextures();
@@ -55,7 +113,55 @@ namespace PresetChecker
                         CheckTextures();
                     }
                 }
+                // If we've fixed and updated this preset, or just copied it to a grouping subdirectory, rename and move the old one so we don't process it again
+                if (Program.settings.WriteChanged && _presetUpdated)
+                {
+                    try
+                    {
+                        string relativePath = Path.GetRelativePath(Program.settings.InputFolder, _presetFileFull);
+                        string? dirname = Path.GetDirectoryName(relativePath);
+                        string newDirPath = Path.Join(Program.settings.BackupFolder, _prefixProcessed, dirname);
+                        Directory.CreateDirectory(newDirPath);
+                        string newFilePath = Path.Join(Program.settings.BackupFolder, _prefixProcessed, relativePath);
+                        File.Move(_presetFileFull, newFilePath);
+                        Console.WriteLine("Moved original Preset file {0} to {1}", _presetFileFull, newFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("WARNING Cannot move Preset file {0} to {1}, it may have been processed before.\nError: {2}.", _presetFileFull, _presetFileFull + '.' + _prefixProcessed, ex.Message);
+                    }
+                }
             }
+            if (_badTextures.Count > 0)
+            {
+                Console.WriteLine("{0} Bad Textures Found", _badTextures.Count);
+                foreach (string texture in _badTextures)
+                {
+                    Console.WriteLine(texture);
+                }
+            }
+            if (_badPlugins.Count > 0)
+            {
+                Console.WriteLine("{0} Bad Mods Found", _badPlugins.Count);
+                foreach (string mod in _badPlugins)
+                {
+                    Console.WriteLine(mod);
+                }
+            }
+        }
+
+        string GetRace(string editorID)
+        {
+            foreach (var raceTag in _raceTagByRaceName)
+            {
+                if (editorID.IndexOf(raceTag.Key, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return raceTag.Value;
+                }
+            }
+            // Race not found, no prefix
+            Console.WriteLine("Race unknown for Face Part {0}", editorID);
+            return "Unknown";
         }
 
         private void CheckTextures()
@@ -102,13 +208,10 @@ namespace PresetChecker
             }
             foreach (string texture in presetTextures)
             {
-                if (!_checkedTextures.Contains(texture))
+                if (!_textures.Contains(texture))
                 {
-                    if (!_textures.Contains(texture))
-                    {
-                        Console.WriteLine("Missing {0}", texture);
-                    }
-                    _checkedTextures.Add(texture);
+                    Console.WriteLine("Missing {0}", texture);
+                    _badTextures.Add(texture);
                 }
             }
 
@@ -130,21 +233,24 @@ namespace PresetChecker
             }
 
             IDictionary<string, string> pluginsMapped = new Dictionary<string, string>();
-            IList<string>? referencedMods = ((JArray)modNames).ToObject<IList<string>>();
-            if (referencedMods is null)
+            IList<string>? originalMods = ((JArray)modNames).ToObject<IList<string>>();
+            if (originalMods is null)
             {
                 Console.WriteLine("File contains 'modNames' in incorrect format, skipping");
                 return false;
             }
+            bool isHighPoly = originalMods.Contains(_highPolyMod);
+            bool isCotR = originalMods.Contains(_cotrMod);
+
             IList<JObject>? modInfo = ((JArray)mods).ToObject<IList<JObject>>();
             if (modInfo is null)
             {
                 Console.WriteLine("File contains 'mods' in incorrect format, skipping");
                 return false;
             }
-
             // introspect analyze headParts for contained formIdentifiers
             bool updatedFile = false;
+            string race = "";
             if (_preset.TryGetValue("headParts", out JToken? headParts))
             {
                 foreach (JToken? headPart in headParts)
@@ -167,6 +273,7 @@ namespace PresetChecker
                         continue;
                     var formIdentifier = formIdentifierString.Value<string>();
                     var elements = formIdentifier!.Split('|');
+                    var pluginName = elements[0];
                     uint formIdPart = uint.Parse(elements[1], NumberStyles.HexNumber);
                     // this form ID should align with the one from "formID" when appropriately masked
                     if (isESPFE)
@@ -192,7 +299,7 @@ namespace PresetChecker
                             formIdString, formIdString.Value<uint>(), formIdentifierString);
                     }
 
-                    if (ModKey.TryFromFileName(elements[0], out ModKey modKey, out string errorReason))
+                    if (ModKey.TryFromFileName(pluginName, out ModKey modKey, out string errorReason))
                     {
                         FormKey formKey = new FormKey(modKey, formId);
                         // If there is no HDPT with this FormID, attempt merged plugin resolution
@@ -200,87 +307,135 @@ namespace PresetChecker
                         {
                             // mod not found, could be an error or a merged plugin
                             bool isMapped = false;
-                            if (_mergeInfo.MergedPlugins.TryGetValue(elements[0], out string? mappedESP))
+                            if (_mergeInfo.MergedPlugins.TryGetValue(pluginName, out string? mappedESP))
                             {
                                 updatedFile = true;
                                 isMapped = true;
-                                pluginsMapped.TryAdd(elements[0], mappedESP);
-
-                                if (isMapped && _mergeInfo.MappedFormIds.TryGetValue(elements[0], out var formMappings))
+                                pluginsMapped.TryAdd(pluginName, mappedESP);
+                                ModKey.TryFromFileName(mappedESP, out ModKey mappedModKey, out string reason);
+                                if (_mergeInfo.MappedFormIds.TryGetValue(elements[0], out var formMappings))
                                 {
                                     // check if FormID needs mapping - we do not include the index here, which should not present problems
                                     if (formMappings.TryGetValue(string.Format("{0:X6}", formId), out var newFormID))
                                     {
-                                        headPart["formId"] = NewFormMask | uint.Parse(newFormID, NumberStyles.AllowHexSpecifier);
+                                        // headPart["formId"] = NewFormMask | uint.Parse(newFormID, NumberStyles.AllowHexSpecifier);
+                                        headPart["formId"] = uint.Parse(newFormID, NumberStyles.AllowHexSpecifier);
                                         headPart["formIdentifier"] = string.Format("{0}|{1}", mappedESP, newFormID);
+                                        formKey = new FormKey(mappedModKey, uint.Parse(newFormID, NumberStyles.AllowHexSpecifier));
                                     }
                                     else
                                     {
-                                        headPart["formId"] = NewFormMask | formId;
+                                        // headPart["formId"] = NewFormMask | formId;
+                                        headPart["formId"] = formId;
                                         headPart["formIdentifier"] = string.Format("{0}|{1:X6}", mappedESP, formId);
+                                        formKey = new FormKey(mappedModKey, formId);
                                     }
                                 }
+                                else
+                                {
+                                    // same formid in the merged plugin
+                                    // headPart["formId"] = NewFormMask | formId;
+                                    headPart["formId"] = formId;
+                                    headPart["formIdentifier"] = string.Format("{0}|{1:X6}", mappedESP, formId);
+                                    formKey = new FormKey(mappedModKey, formId);
+                                }
+                                Console.WriteLine("formIdentifier updated to {0}", headPart["formIdentifier"]);
                             }
 
                             if (!isMapped)
                             {
+                                _badPlugins.Add(pluginName);
                                 Console.WriteLine("Contains bad HDPT {0}", formIdentifier);
+                            }
+                        }
+                        else
+                        {
+                            // record original plugin still present
+                            pluginsMapped.TryAdd(pluginName, pluginName);
+                        }
+
+                        if (Program.settings.GroupPresets && race.IsNullOrEmpty())
+                        {
+                            // Assume for now that face part is not merged - typically HPH or vanilla
+                            if (_raceByFacePart!.TryGetValue(formKey, out var raceTag))
+                            {
+                                race = raceTag;
                             }
                         }
                     }
                 }
             }
-            // If this file required updates, output the new lines to the patch location
-            if (updatedFile)
+            // If this file required updates or grouping, output the new lines to the patch location
+            if (updatedFile || Program.settings.GroupPresets)
             {
-                ISet<string> pluginsDone = new HashSet<string>();
-                // update mods element based on plugins found to be merged
-                foreach (var mappedMod in pluginsMapped)
+                _presetUpdated = true;
+                // get new path ready
+                string prefix = "";
+                if (Program.settings.GroupPresets)
                 {
-                    referencedMods.Replace(mappedMod.Key, mappedMod.Value);
-                    // find the existing entry for this plugin - we will use its index, which does not seem to have informational value
-                    // beyond being unique
-                    int index = 0;
-                    int modIndex = -1;
-                    foreach (var nextMod in modInfo)
+                    if (isCotR)
                     {
-                        if (nextMod.TryGetValue("name", StringComparison.InvariantCultureIgnoreCase,
-                                out JToken? entry) && entry.Value<string>() == mappedMod.Key)
+                        prefix = _cotrPrefix;
+                    }
+                    else
+                    {
+                        if (isHighPoly)
                         {
-                            modIndex = (int)nextMod["index"]!.Value<uint>();
-                            modInfo.RemoveAt(index);
-                            break;
+                            prefix = _highPolyPrefix;
                         }
-                        ++index;
+                        if (!race.IsNullOrEmpty())
+                        {
+                            prefix = Path.Join(race, prefix);
+                        }
                     }
-
-                    if (pluginsDone.Add(mappedMod.Value))
+                    if (prefix.IsNullOrEmpty())
                     {
-                        // insert an entry for the new plugin in 'mods' in the same location as the one we just removed, to preserve ordering
-                        modInfo.Insert(index, new JObject {
-                                    {"index", modIndex},
-                                    {"name", mappedMod.Value }
-                                });
+                        prefix = _otherPrefix;
                     }
                 }
+                string updatedPath = Path.Join(Program.settings.OutputFolder, _validPresetPath, prefix);
+                Directory.CreateDirectory(updatedPath);
+                updatedPath = Path.Join(updatedPath, _newFileName);
 
-                // remove duplicates from the mapped plugin list and update the JSON graph
-                referencedMods = new HashSet<string>(referencedMods).ToList<string>();
-                _preset["modNames"] = new JArray(referencedMods);
-
-                string updatedPath = Path.GetRelativePath(_inputFolder, _presetFile!);
-                updatedPath = Program.settings.OutputFolder + '\\' + updatedPath;
-                Directory.CreateDirectory(Path.GetDirectoryName(updatedPath)!);
-                // serialize JSON directly to a file
-                using (StreamWriter file = File.CreateText(updatedPath))
+                ISet<string> pluginsDone = new HashSet<string>();
+                // update mods and modNames JSON elements based on plugins refernced in the updated preset
+                if (Program.settings.WriteChanged)
                 {
-                    JsonSerializer serializer = new JsonSerializer();
-                    serializer.Formatting = Formatting.Indented;
-                    serializer.Serialize(file,_preset);
-                }
-                Console.WriteLine("---- {0} written", updatedPath);
-            }
+                    if (updatedFile)
+                    {
+                        var newModNames = new HashSet<string>(pluginsMapped.Values);
+                        _preset["modNames"] = new JArray(newModNames);
+                        var newModInfo = new List<JObject>();
+                        foreach (var newMod in newModNames)
+                        {
+                            if (ModKey.TryFromFileName(newMod, out ModKey newKey, out string errorReason))
+                            {
+                                // insert an entry for the new plugin in 'mods' in the same location as the one we just removed, to preserve ordering
+                                newModInfo.Add(new JObject {
+                                {"index", Program.State.LoadOrder.IndexOf(newKey)},
+                                {"name", newMod }
+                            });
+                            }
+                        }
+                        _preset["mods"] = new JArray(newModInfo);
 
+                        // serialize JSON directly to a file
+                        using (StreamWriter file = File.CreateText(updatedPath))
+                        {
+                            JsonSerializer serializer = new JsonSerializer();
+                            serializer.Formatting = Formatting.Indented;
+                            serializer.Serialize(file, _preset);
+                        }
+                        Console.WriteLine("---- {0} contains updated preset", updatedPath);
+                    }
+                    else
+                    {
+                        // just relocating an already-good preset to group for clarity
+                        File.Copy(_presetFileFull!, updatedPath);
+                        Console.WriteLine("---- {0} contains grouped preset", updatedPath);
+                    }
+                }
+            }
             return true;
         }
     }

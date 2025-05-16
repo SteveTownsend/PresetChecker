@@ -1,0 +1,6 @@
+{
+  "AddGitPatcher": {
+    "Url": "https://github.com/SteveTownsend/PresetChecker",
+    "SelectedProject": "PresetChecker\\PresetChecker.csproj"
+  }
+}
