@@ -12,7 +12,7 @@ namespace PresetChecker
         [SynthesisSettingName("Input Folder")]
         [SynthesisTooltip("This must be a valid path on your computer. Typically this points to the physical path of the mod directory in your Mod Manager VFS, e.g. 'D:/ModdedSkyrim/mods'. There is no default value, in order to preserve the relative path of relocated backup presets.")]
         [SynthesisDescription("Path to be scanned for merged plugins and preset .jslot files.")]
-        public string InputFolder { get; set; } = "j:/OmegaLOTD/Tools/Mods/";
+        public string InputFolder { get; set; } = "J:\\SteamLibrary\\steamapps\\common\\Skyrim Special Edition\\Data";
 
         [SynthesisSettingName("Output Folder")]
         [SynthesisTooltip("This must be a valid path on your computer. Typically this points to a new mod directory in your Mod Manager VFS, e.g. 'D:/ModdedSkyrim/mods/Preset Checker'. There is no default value.")]
