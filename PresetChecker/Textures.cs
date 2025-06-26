@@ -21,7 +21,7 @@ namespace PresetChecker
             // inventory merge candidates in the current directory
             string textureRoot = Program.State.DataFolderPath + '\\'+ TexturePrefix;
             EnumerationOptions options = new EnumerationOptions { RecurseSubdirectories = true };
-            //Console.WriteLine("Loose Textures");
+            //Program.Logger.Write("Loose Textures");
             foreach (string textureFile in Directory.GetFiles(Program.State.DataFolderPath, TextureFilter, options))
             {
                 if (!textureFile.Contains(TexturePrefix, StringComparison.InvariantCultureIgnoreCase))
@@ -29,15 +29,15 @@ namespace PresetChecker
                 string normalizedPath = Path.GetRelativePath(textureRoot, textureFile.ToLower());
                 if (_textureNames.TryAdd(normalizedPath, (byte)0))
                 {
-                    //Console.WriteLine("{0}", textureFile);
+                    //Program.Logger.Write("{0}", textureFile);
                 }
             }
-            //Console.WriteLine("Loose Textures done");
+            //Program.Logger.Write("Loose Textures done");
 
             // Introspect all known BSAs to locate textures not found as loose files. Dups are ignored - first find wins.
             foreach (var bsaFile in Archive.GetApplicableArchivePaths(GameRelease.SkyrimSE, Program.State.DataFolderPath))
             {
-                //Console.WriteLine("BSA file {0}", bsaFile);
+                //Program.Logger.Write("BSA file {0}", bsaFile);
                 var bsaReader = Archive.CreateReader(GameRelease.SkyrimSE, bsaFile);
                 bsaReader.Files.AsParallel().
                     Where(candidate => candidate.Path.ToLower().EndsWith(TextureSuffix)).
@@ -48,10 +48,10 @@ namespace PresetChecker
                         string normalizedPath = bsaTexture.Path.Substring(TexturePrefix.Length).ToLower();
                         if (_textureNames.TryAdd(normalizedPath, (byte)0))
                         {
-                            //Console.WriteLine("{0}", bsaTexture.Path);
+                            //Program.Logger.Write("{0}", bsaTexture.Path);
                         }
                     });
-                //Console.WriteLine("BSA done {0}", bsaFile);
+                //Program.Logger.Write("BSA done {0}", bsaFile);
             }
         }
 

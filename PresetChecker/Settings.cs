@@ -4,6 +4,11 @@ namespace PresetChecker
 {
     internal class Settings
     {
+        [SynthesisSettingName("Log File Name")]
+        [SynthesisTooltip("Console output can be verbose if a lot of presets are used so file log is written as well. This must be a valid file path on your computer. Typically this points to a file is a new mod directory in your Mod Manager VFS, e.g. 'D:/ModdedSkyrim/mods/Preset Checker'. There is no default value.")]
+        [SynthesisDescription("Path where diagnostic output is written.")]
+        public string LogFileName { get; set; } = "j:/OmegaLOTD/Tools/Mods/Preset Checker/log.txt";
+
         [SynthesisSettingName("Input Folder")]
         [SynthesisTooltip("This must be a valid path on your computer. Typically this points to the physical path of the mod directory in your Mod Manager VFS, e.g. 'D:/ModdedSkyrim/mods'. There is no default value, in order to preserve the relative path of relocated backup presets.")]
         [SynthesisDescription("Path to be scanned for merged plugins and preset .jslot files.")]

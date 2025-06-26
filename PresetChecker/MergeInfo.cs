@@ -40,7 +40,7 @@ namespace PresetChecker
                     }
                 }
                 MergePaths.Add(mergePath);
-                Console.WriteLine("Found possible merged plugin {0}", mergePath);
+                Program.Logger.Write("Found possible merged plugin {0}", mergePath);
                 using (StreamReader reader = File.OpenText(mergePath + "/map.json"))
                 {
                     JObject o = (JObject)JToken.ReadFrom(new JsonTextReader(reader));

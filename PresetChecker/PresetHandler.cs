@@ -76,8 +76,8 @@ namespace PresetChecker
             int existingCount = Directory.GetFiles(Program.settings.OutputFolder, "*.jslot", options).Length;
             if (existingCount > 0)
             {
-                Console.WriteLine("WARNING {0} Preset files found in output folder will not be overwritten", existingCount);
-                Console.WriteLine("------- Please ensure Output Directory is not included in MO2 Virtual File System by unchecking the mod before running, to avoid errors or confusion");
+                Program.Logger.Write("WARNING {0} Preset files found in output folder will not be overwritten", existingCount);
+                Program.Logger.Write("------- Please ensure Output Directory is not included in MO2 Virtual File System by unchecking the mod before running, to avoid errors or confusion");
             }
 
             _allHeadParts = Program.State.LoadOrder.PriorityOrder.WinningOverrides<IHeadPartGetter>().Select(s => s.FormKey).ToHashSet();
@@ -93,7 +93,7 @@ namespace PresetChecker
                 _presetUpdated = false;
                 if (!presetFile.ToLower().Contains(_validPresetPath))
                 {
-                    Console.WriteLine("---- Preset file outside valid location {0}", presetFile);
+                    Program.Logger.Write("---- Preset file outside valid location {0}", presetFile);
                     continue;
                 }
                 string presetExtension = Path.GetExtension(presetFile);
@@ -102,7 +102,7 @@ namespace PresetChecker
                 _originalFileName = Path.GetFileName(_presetFileFull);
                 _newFileName = _originalFileName;
                 PresetPaths.Add(_presetFileFull);
-                Console.WriteLine("---- Preset file checks for {0}", _presetFileFull);
+                Program.Logger.Write("---- Preset file checks for {0}", _presetFileFull);
 
                 using (StreamReader reader = File.OpenText(_presetFileFull))
                 {
@@ -124,28 +124,28 @@ namespace PresetChecker
                         Directory.CreateDirectory(newDirPath);
                         string newFilePath = Path.Join(Program.settings.BackupFolder, _prefixProcessed, relativePath);
                         File.Move(_presetFileFull, newFilePath);
-                        Console.WriteLine("Moved original Preset file {0} to {1}", _presetFileFull, newFilePath);
+                        Program.Logger.Write("Moved original Preset file {0} to {1}", _presetFileFull, newFilePath);
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine("WARNING Cannot move Preset file {0} to {1}, it may have been processed before.\nError: {2}.", _presetFileFull, _presetFileFull + '.' + _prefixProcessed, ex.Message);
+                        Program.Logger.Write("WARNING Cannot move Preset file {0} to {1}, it may have been processed before.\nError: {2}.", _presetFileFull, _presetFileFull + '.' + _prefixProcessed, ex.Message);
                     }
                 }
             }
             if (_badTextures.Count > 0)
             {
-                Console.WriteLine("{0} Bad Textures Found", _badTextures.Count);
+                Program.Logger.Write("{0} Bad Textures Found", _badTextures.Count);
                 foreach (string texture in _badTextures)
                 {
-                    Console.WriteLine(texture);
+                    Program.Logger.Write(texture);
                 }
             }
             if (_badPlugins.Count > 0)
             {
-                Console.WriteLine("{0} Bad Mods Found", _badPlugins.Count);
+                Program.Logger.Write("{0} Bad Mods Found", _badPlugins.Count);
                 foreach (string mod in _badPlugins)
                 {
-                    Console.WriteLine(mod);
+                    Program.Logger.Write(mod);
                 }
             }
         }
@@ -160,7 +160,7 @@ namespace PresetChecker
                 }
             }
             // Race not found, no prefix
-            Console.WriteLine("Race unknown for Face Part {0}", editorID);
+            Program.Logger.Write("Race unknown for Face Part {0}", editorID);
             return "Unknown";
         }
 
@@ -170,7 +170,7 @@ namespace PresetChecker
             ISet<string> presetTextures = new HashSet<string>();
             if (!_preset!.TryGetValue("faceTextures", out JToken? faceTextures))
             {
-                Console.WriteLine("Preset contains no 'faceTextures'");
+                Program.Logger.Write("Preset contains no 'faceTextures'");
             }
             else
             {
@@ -180,7 +180,7 @@ namespace PresetChecker
 
             if (!_preset.TryGetValue("overrides", out JToken? overrides))
             {
-                Console.WriteLine("Preset contains no 'overrides'");
+                Program.Logger.Write("Preset contains no 'overrides'");
             }
             else
             {
@@ -199,7 +199,7 @@ namespace PresetChecker
 
             if (!_preset.TryGetValue("tintInfo", out JToken? tintInfo))
             {
-                Console.WriteLine("Preset contains no 'tintInfo'");
+                Program.Logger.Write("Preset contains no 'tintInfo'");
             }
             else
             {
@@ -210,7 +210,7 @@ namespace PresetChecker
             {
                 if (!_textures.Contains(texture))
                 {
-                    Console.WriteLine("Missing {0}", texture);
+                    Program.Logger.Write("Missing {0}", texture);
                     _badTextures.Add(texture);
                 }
             }
@@ -223,12 +223,12 @@ namespace PresetChecker
             // introspect headParts for contained formIdentifiers
             if (!_preset!.TryGetValue("modNames", out JToken? modNames))
             {
-                Console.WriteLine("File contains no 'modNames', skipping");
+                Program.Logger.Write("File contains no 'modNames', skipping");
                 return false;
             }
             if (!_preset.TryGetValue("mods", out JToken? mods))
             {
-                Console.WriteLine("File contains no 'mods', skipping");
+                Program.Logger.Write("File contains no 'mods', skipping");
                 return false;
             }
 
@@ -236,7 +236,7 @@ namespace PresetChecker
             IList<string>? originalMods = ((JArray)modNames).ToObject<IList<string>>();
             if (originalMods is null)
             {
-                Console.WriteLine("File contains 'modNames' in incorrect format, skipping");
+                Program.Logger.Write("File contains 'modNames' in incorrect format, skipping");
                 return false;
             }
             bool isHighPoly = originalMods.Contains(_highPolyMod);
@@ -245,7 +245,7 @@ namespace PresetChecker
             IList<JObject>? modInfo = ((JArray)mods).ToObject<IList<JObject>>();
             if (modInfo is null)
             {
-                Console.WriteLine("File contains 'mods' in incorrect format, skipping");
+                Program.Logger.Write("File contains 'mods' in incorrect format, skipping");
                 return false;
             }
             // introspect analyze headParts for contained formIdentifiers
@@ -280,22 +280,22 @@ namespace PresetChecker
                     {
                         if ((formIdPart & ESPFEForm) != formId)
                         {
-                            Console.WriteLine("Contains mismatched HDPT ESPFE Form IDs {0}/{1}",
+                            Program.Logger.Write("Contains mismatched HDPT ESPFE Form IDs {0}/{1}",
                                 formIdString, formIdentifierString);
                             continue;
                         }
-                        Console.WriteLine("Check HDPT ESPFE Form IDs {0}(0x{1:X8})/{2}",
+                        Program.Logger.Write("Check HDPT ESPFE Form IDs {0}(0x{1:X8})/{2}",
                             formIdString, formIdString.Value<uint>(), formIdentifierString);
                     }
                     else
                     {
                         if ((formIdPart & ESPForm) != formId)
                         {
-                            Console.WriteLine("Contains mismatched HDPT non-ESPFE Form IDs {0}/{1}",
+                            Program.Logger.Write("Contains mismatched HDPT non-ESPFE Form IDs {0}/{1}",
                                 formIdString, formIdentifierString);
                             continue;
                         }
-                        Console.WriteLine("Check HDPT non-ESPFE Form IDs {0}(0x{1:X8})/{2}",
+                        Program.Logger.Write("Check HDPT non-ESPFE Form IDs {0}(0x{1:X8})/{2}",
                             formIdString, formIdString.Value<uint>(), formIdentifierString);
                     }
 
@@ -339,13 +339,13 @@ namespace PresetChecker
                                     headPart["formIdentifier"] = string.Format("{0}|{1:X6}", mappedESP, formId);
                                     formKey = new FormKey(mappedModKey, formId);
                                 }
-                                Console.WriteLine("formIdentifier updated to {0}", headPart["formIdentifier"]);
+                                Program.Logger.Write("formIdentifier updated to {0}", headPart["formIdentifier"]);
                             }
 
                             if (!isMapped)
                             {
                                 _badPlugins.Add(pluginName);
-                                Console.WriteLine("Contains bad HDPT {0}", formIdentifier);
+                                Program.Logger.Write("Contains bad HDPT {0}", formIdentifier);
                             }
                         }
                         else
@@ -426,13 +426,13 @@ namespace PresetChecker
                             serializer.Formatting = Formatting.Indented;
                             serializer.Serialize(file, _preset);
                         }
-                        Console.WriteLine("---- {0} contains updated preset", updatedPath);
+                        Program.Logger.Write("---- {0} contains updated preset", updatedPath);
                     }
                     else
                     {
                         // just relocating an already-good preset to group for clarity
                         File.Copy(_presetFileFull!, updatedPath);
-                        Console.WriteLine("---- {0} contains grouped preset", updatedPath);
+                        Program.Logger.Write("---- {0} contains grouped preset", updatedPath);
                     }
                 }
             }

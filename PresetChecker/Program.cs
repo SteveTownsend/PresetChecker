@@ -10,6 +10,11 @@ namespace PresetChecker
     {
         static Lazy<Settings> _settings = null!;
         static internal Settings settings => _settings.Value;
+        static private Logger _logger = null!;
+        internal static Logger Logger
+        {
+            get { return _logger!; }
+        }
         public static async Task<int> Main(string[] args)
         {
             return await SynthesisPipeline.Instance
@@ -30,6 +35,7 @@ namespace PresetChecker
 
         public static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
+            _logger = new Logger(settings.LogFileName);
             _state = state;
             _mergeInfo = new MergeInfo(settings.InputFolder);
             _textures = new Textures();
